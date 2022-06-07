@@ -1,0 +1,1 @@
+INFO:root:Namespace(dataset='bsz16_2sat_5var_2maxcl_10k_4pos', batch_size=16, max_seq_length=128, train_size=0.8, bert_version='bert-base-uncased', random_seed=123, loss='infonce', tau=0.07, lr=0.05, weight_decay=0.01, lr_schedule='linear', epochs=1000, use_trans=False, use_hard_pair=True)

@@ -1,0 +1,15 @@
+INFO:root:Namespace(dataset='bsz16_2sat_5var_2maxcl_10k_4pos', batch_size=16, max_seq_length=128, train_size=0.8, bert_version='bert-base-uncased', random_seed=123, loss='infonce', tau=0.5, lr=0.1, weight_decay=0.01, lr_schedule='linear', epochs=1000, use_trans=False, use_hard_pair=True)
+INFO:root:build datasets...
+INFO:root:(x_train, x_val, x_test): 8000, 1000, 1000
+INFO:root:load sentences ...
+INFO:root:total number of main sentences: 10000
+INFO:root:total number of pair sentences: 160000
+INFO:root:Setting GPU...
+INFO:root:use single GPU
+INFO:root:Start training...
+INFO:root:Epoch: 1 | train loss: 2.5175 | dev loss: 2.5649 
+INFO:root:Epoch: 2 | train loss: 2.5650 | dev loss: 2.5649 
+INFO:root:Epoch: 3 | train loss: 2.5649 | dev loss: 2.5649 
+INFO:root:Epoch: 4 | train loss: 2.5649 | dev loss: 2.5649 
+INFO:root:Epoch: 5 | train loss: 2.5649 | dev loss: 2.5649 
+INFO:root:Epoch: 6 | train loss: 2.5649 | dev loss: 2.5649 
