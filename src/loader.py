@@ -31,7 +31,7 @@ def load_csv(fname):
     return df
 
 
-def load_indices(x_train, x_val, x_test, file_loader_path, df_allpairs, batch_size):
+def load_pairs(x_train, x_val, x_test, file_loader_path, df_allpairs, batch_size):
     fname_train = file_loader_path + "_train.csv"
     fname_val = file_loader_path + "_val.csv"
     fname_test = file_loader_path + "_test.csv"
@@ -40,13 +40,13 @@ def load_indices(x_train, x_val, x_test, file_loader_path, df_allpairs, batch_si
         df_val = pd.read_csv(fname_val, sep=';', engine="python")
         df_test = pd.read_csv(fname_test, sep=';', engine="python")
     else:
-        df_train = index_loader(x_train, file_loader_path, df_allpairs, batch_size, 'train')
-        df_val = index_loader(x_val, file_loader_path, df_allpairs, batch_size, 'val')
-        df_test = index_loader(x_test, file_loader_path, df_allpairs, batch_size, 'test')
+        df_train = pair_loader(x_train, file_loader_path, df_allpairs, batch_size, 'train')
+        df_val = pair_loader(x_val, file_loader_path, df_allpairs, batch_size, 'val')
+        df_test = pair_loader(x_test, file_loader_path, df_allpairs, batch_size, 'test')
     return df_train, df_val, df_test
 
 
-def index_loader(dataset, file_loader_path, df_allpairs, batch_size, mode):
+def pair_loader(dataset, file_loader_path, df_allpairs, batch_size, mode):
     fname_out = file_loader_path + "_" + mode + ".csv"
     equ_size = int(batch_size / 4)
     pos_size = int(batch_size / 4)

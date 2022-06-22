@@ -17,17 +17,19 @@ if __name__ == '__main__':
     # Set parameters
     args = argparse.Namespace(dataset='bsz8_2sat_5var_2maxcl_10k_2pos',
                               batch_size=8,
-                              max_seq_length=512,
+                              max_seq_length=256,
                               train_size=0.8,
                               bert_version='bert-base-uncased',
                               random_seed=123,
-                              loss='infonce',
                               tau=0.02,
                               lr=2e-5,
                               weight_decay=1e-3,
                               lr_schedule='linear',
                               epochs=1000,
-                              use_hard_pair=False
+                              pooling='cls',
+                              loss='NTXent',
+                              hidden_dim=512,
+                              out_dim=2
                               )
 
     model_path = os.path.join('finetuned_bert_model', args.dataset)
@@ -35,7 +37,7 @@ if __name__ == '__main__':
         os.makedirs(model_path)
 
     model_params = ["bert-base-uncased", args.loss]
-    if args.loss == "infonce":
+    if args.loss == "NTXent":
         model_params.append(str(args.tau))
 
     model_params += [str(args.lr), str(args.batch_size), str(args.weight_decay)]
@@ -69,11 +71,11 @@ if __name__ == '__main__':
     del x_rem
     msg = '(x_train, x_val, x_test): ' + str(len(x_train)) + ', ' + str(len(x_val)) + ', ' + str(len(x_test))
     logging.info(msg)
-    # x_train, x_val, x_test have (id_set, sentence)
+    # x_train, x_val, x_test have (id_set, clause)
 
     # 2. Extract sentences and labels
-    df_train, df_val, df_test = load_indices(x_train, x_val, x_test, file_loader_path, df_allpairs, args.batch_size)
-    tr_equ_labels = df_train.is_entailed.values
+    df_train, df_val, df_test = load_pairs(x_train, x_val, x_test, file_loader_path, df_allpairs, args.batch_size)
+    train_labels = df_train.is_entailed.values
     # df_train, df_val, df_test have (id, id_set, is_equivalent, is_entailed)
 
     # 3. Create the loaders
@@ -91,24 +93,20 @@ if __name__ == '__main__':
     logging.info("total number of main sentences: " + str(len(main_sentences)))
     pair_sentences = df_allpairs["sentence2"].tolist()
     logging.info("total number of pair sentences: " + str(len(pair_sentences)))
+    cl_labels = df_allpairs["is_equivalent"].tolist()
+    logging.info("total number of labels: " + str(len(cl_labels)))
 
     # 4. Build model
     model = BertCLModel(args, bert_version=args.bert_version)
-    # unfreeze_layers = ['layer.11', 'layer.10', 'layer.9']
 
     tuned_parameters = [{'params': [param for name, param in model.named_parameters()]}]
 
     optimizer = AdamW(tuned_parameters, lr=args.lr)
 
-    model_file = os.path.join(model_path, "_".join(model_params) + "_last3L.pt")
+    model_file = os.path.join(model_path, "_".join(model_params) + ".pt")
     early_stopping = EarlyStopping(patience=20, verbose=False, path=model_file, delta=1e-10)
     # early_stopping = EarlyStopping(patience=3, verbose=False, path=model_file, delta=1e-10)
-    if args.lr_schedule == 'linear':
-        scheduler = get_linear_schedule_with_warmup(optimizer, len(train_loader) * 2, int(len(train_loader) * args.epochs))
-    elif args.lr_schedule == 'cosine':
-        scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader) * 2, int(len(train_loader) * args.epochs))
-    else:
-        scheduler = get_constant_schedule_with_warmup(optimizer, len(train_loader) * 2, int(len(train_loader) * args.epochs))
+    scheduler = get_linear_schedule_with_warmup(optimizer, len(train_loader) * 2, int(len(train_loader) * args.epochs))
 
     # 5. GPU setting
     logging.info("Setting GPU...")
@@ -131,6 +129,7 @@ if __name__ == '__main__':
             # idx1 = batch[0][:, 1]  -- get id_set, not needed
             indices = batch[0][:, 0]  # batch_size/4 are positive pairs, the rest are negative pairs
             sentences = np.array(pair_sentences)[indices - 1]
+            labels = np.array(cl_labels)[indices - 1]
 
             seq_in = tokenize_mask(sentences, args.max_seq_length, bert_tokenizer)
 
@@ -138,6 +137,7 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
             loss = model(token_ids, input_masks)
+            #  print(f"loss: {loss}")
             if isinstance(model, torch.nn.DataParallel):
                 loss = loss.mean()
             loss.backward()

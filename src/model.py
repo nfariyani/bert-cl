@@ -1,5 +1,7 @@
 import numpy as np
-import torch.nn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import nltk
 nltk.download('punkt')
 from transformers import BertModel
@@ -10,39 +12,44 @@ class BertCLModel(torch.nn.Module):
     def __init__(self, config, bert_version='bert-base-uncased'):
         super(BertCLModel, self).__init__()
         self.bert = BertModel.from_pretrained(bert_version, output_hidden_states=True)
-        self.miner = miners.MultiSimilarityMiner()
-        if config.loss == "infonce":
-            self.loss_fn = losses.NTXentLoss(temperature=config.tau)
-        # elif config.loss == "triple":
-            # self.loss_fn = losses.TripletMarginLoss(margin=config.margin)
-        self.use_hard_pair = config.use_hard_pair
+        self.in_dim = self.bert.config.hidden_size
+        self.pooling = config.pooling
+        self.hidden_dim = config.hidden_dim
+        self.out_dim = config.out_dim
+        self.trans1 = nn.Linear(self.in_dim, self.hidden_dim, bias=True)
+        self.trans2 = nn.Linear(self.hidden_dim, self.out_dim, bias=True)
+        self.sigmoid_fn = nn.Sigmoid()
 
-    def forward(self, token_ids, input_mask, labels=None):
-        emb_in = self.get_bert_emb(token_ids, input_mask)
+        if config.loss == "NTXent":
+            self.temperature = config.tau
+
+    def forward(self, token_ids, input_mask):
+        emb_in = self.get_bert_emb(token_ids, input_mask, self.pooling)
         batch_size = emb_in.shape[0]
-
-        if labels is None:
-            # index 0-3 for positive labels, and the rest for negatives
-            pos_labels = torch.full([int(batch_size / 4)], 0, device=emb_in.device)
-            neg_labels = torch.arange(1, int(batch_size * 3 / 4) + 1, device=emb_in.device)
-            labels = torch.cat([pos_labels, neg_labels], dim=0)
-
-        if self.use_hard_pair:
-            hard_pairs = self.miner(emb_in, labels)
-            loss = self.loss_fn(emb_in, labels, hard_pairs)
-        else:
-            loss = self.loss_fn(emb_in, labels)
-        # print('loss: {:,}'.format(loss))
+        cl_loss = ContrastiveLoss(batch_size=batch_size, temperature=self.temperature, verbose=False)
+        en_loss = EntailmentLoss(verbose=True)
+        eloss = en_loss(emb_in)
+        loss = cl_loss(emb_in)
         return loss
 
-    def get_bert_emb(self, token_ids, input_masks):
+    def get_bert_emb(self, token_ids, input_masks, pooling):
         # get the embedding from the last layer
-        last_layer_emb = self.bert(input_ids=token_ids, attention_mask=input_masks).hidden_states[-1]
-        emb_sent = last_layer_emb[:, :, -1]
-        # print(emb_sent.shape)
+        outputs = self.bert(input_ids=token_ids, attention_mask=input_masks)
+        last_hidden_states = outputs.hidden_states[-1]
+
+        if pooling is None:
+            pooling = 'cls'
+
+        if pooling == 'cls':
+            pooled = last_hidden_states[:, 0, :]
+        elif pooling == 'mean':
+            pooled = last_hidden_states.sum(axis=1) / input_masks.sum(axis=-1).unsqueeze(-1)
+        elif pooling == 'max':
+            pooled = torch.max((last_hidden_states * input_masks.unsqueeze(-1)), axis=1)
+            pooled = pooled.values
         del token_ids
         del input_masks
-        return emb_sent
+        return pooled
 
 
 def tokenize_mask_clauses(clauses, max_seq_len, tokenizer):
@@ -86,6 +93,82 @@ def convert_tuple_to_tensor(input_tuple, use_gpu=False):
         token_ids = token_ids.to("cuda")
         input_masks = input_masks.to("cuda")
     return token_ids, input_masks
+
+
+class ContrastiveLoss(nn.Module):
+    def __init__(self, batch_size, temperature, verbose=True):
+        super().__init__()
+        self.batch_size = batch_size
+        self.register_buffer("temperature", torch.tensor(temperature))
+        self.verbose = verbose
+
+    def forward(self, emb_in):
+        z_in = F.normalize(emb_in, dim=1)
+        representations = z_in
+        similarity_matrix = F.cosine_similarity(representations.unsqueeze(1), representations.unsqueeze(0), dim=2)
+        if self.verbose:
+            print("Similarity matrix\n", similarity_matrix, "\n")
+
+        def log_ij(i, j):
+            z_i_, z_j_ = representations[i], representations[j]
+            sim_i_j = similarity_matrix[i, j]
+            if self.verbose:
+                print(f"sim({i}, {j})={sim_i_j}")
+
+            numerator = torch.exp(sim_i_j / self.temperature)
+            if self.verbose:
+                print(f"numerator", numerator)
+                #  print(emb_in.device())
+                #  print(torch.tensor([i]).device())
+            one_for_not_i = torch.ones((self.batch_size, )).to(emb_in.device).scatter_(0, torch.tensor([i]).to(emb_in.device), 0.0)
+            if self.verbose:
+                print(f"1{{k!={i}}}", one_for_not_i)
+
+            denominator = torch.sum(
+                one_for_not_i * torch.exp(similarity_matrix[i, :] / self.temperature)
+            )
+            if self.verbose:
+                print(f"Denominator", denominator)
+
+            loss_ij = - torch.log(numerator / denominator)
+            if self.verbose:
+                print(f"loss({i}, {j})={loss_ij}\n")
+
+            return loss_ij.squeeze(0)
+
+        n = int(self.batch_size / 4)
+        loss = 0.0
+        for i in range(0, n):
+            for j in range(i+1, n):
+                loss += log_ij(i, j)
+
+        return -2 / n * (n-1) * loss
+
+
+class EntailmentLoss(nn.Module):
+    def __init__(self, verbose=True):
+        super().__init__()
+        self.verbose = verbose
+
+    def forward(self, trans_in):
+        batch_size = trans_in.shape[0]
+        n = int(batch_size / 4)
+        m = int(batch_size / 2)
+        z_in = F.normalize(trans_in, dim=1)
+        labels = []
+        for i in range(0, n):
+            labels.extend([1.0 for j in range(m - (i+1))])
+            labels.extend([0.0 for k in range(m)])
+
+        for i in range(0, n):
+            for j in range(i + 1, m):
+                vec_cat = torch.cat([z_in[i], z_in[j]], dim=0)
+                embedding_all = torch.cat()
+        if self.verbose:
+            print(len(labels))
+            print(labels)
+        loss = 0
+        return loss
 
 
 class EarlyStopping:
