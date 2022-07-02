@@ -101,36 +101,23 @@ class BertCLModel(torch.nn.Module):
         return loss
 
 
-class BertModel(torch.nn.Module):
+class BertModel_FineTuned(torch.nn.Module):
     def __init__(self, config, bert_version='bert-base-uncased'):
-        super(BertCLModel, self).__init__()
+        super(BertModel_FineTuned, self).__init__()
         self.bert = BertModel.from_pretrained(bert_version, output_hidden_states=True)
         self.in_dim = self.bert.config.hidden_size # in_dim = 768
         self.pooling = config.pooling
         self.embedding = config.embedding
         self.hidden_dim = config.hidden_dim  # hidden_dim = 512
         self.out_dim = config.out_dim  # out_dim = 1
-        if self.embedding == 'concat':
-            self.trans1 = nn.Linear(self.in_dim * 2, self.hidden_dim, bias=True)
-        else:
-            self.trans1 = nn.Linear(self.in_dim, self.hidden_dim, bias=True)
-        self.trans2 = nn.Linear(self.hidden_dim, self.hidden_dim, bias=True)
-        self.layer_out = nn.Linear(self.hidden_dim, 1, bias=True)
+        self.trans1 = nn.Linear(self.in_dim * 2, self.in_dim * 2, bias=True)
+        self.layer_out = nn.Linear(self.in_dim * 2, 1, bias=True)
         self.bce_logits_loss = nn.BCEWithLogitsLoss()
-        self.sigmoid = nn.Sigmoid()
         self.relu = nn.ReLU()
-
-        if config.loss == "NTXent":
-            self.temperature = config.tau
 
     def forward(self, token_ids, input_mask):
         emb_in = self.get_bert_emb(token_ids, input_mask, self.pooling)
-        batch_size = emb_in.shape[0]
-        cl_loss = ContrastiveLoss(batch_size=batch_size, temperature=self.temperature, verbose=False)
-        closs = cl_loss(emb_in)
-        eloss = self.en_loss(emb_in)
-        loss = closs + eloss
-
+        loss = self.en_loss(emb_in)
         return loss
 
     def get_bert_emb(self, token_ids, input_masks, pooling):
@@ -167,13 +154,10 @@ class BertModel(torch.nn.Module):
 
         for i in range(0, n):
             for j in range(i + 1, batch_size):
-                # vec_cat = torch.cat([z_in[i], z_in[j]], dim=0)
-                # print(vec_cat.shape)
-                # embed_in_1 = torch.cat([embed_all, vec_cat], dim=0)
                 emb_in_1 = z_in[i]
                 emb_in_2 = z_in[j]
                 if self.embedding == 'concat':
-                    emb_in = torch.cat([emb_in_1, emb_in_2], dim=0) # tensor dimension size [2 * 768]
+                    emb_in = torch.cat([emb_in_1, emb_in_2], dim=0)  # tensor dimension size [2 * 768]
                 elif self.embedding == 'subtract':
                     emb_in = torch.sub(emb_in_2 - emb_in_1)  # tensor dimension size [768]
                 elif self.embedding == 'hadamard_cat':
@@ -182,8 +166,7 @@ class BertModel(torch.nn.Module):
                     emb_in = torch.cat([emb_in, emb_in_2], dim=0)  # tensor dimension size [3 * 768]
 
                 h1 = self.relu(self.trans1(emb_in))
-                h2 = self.relu(self.trans2(h1))
-                x = self.layer_out(h2)
+                x = self.layer_out(h1)
                 # concatenation
                 pred_all = torch.cat([pred_all, x], dim=0)
 
@@ -192,6 +175,7 @@ class BertModel(torch.nn.Module):
 
         del labels, t_labels, pred_all
         return loss
+
 
 def tokenize_mask_clauses(clauses, max_seq_len, tokenizer):
     cls_token = "[CLS]"

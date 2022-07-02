@@ -34,13 +34,13 @@ if __name__ == '__main__':
                               embedding='concat'
                               )
 
-    model_path = os.path.join('finetuned_bert_model', args.dataset)
+    model_path = os.path.join('finetuned_bert_model_no_cl', args.dataset)
     if not os.path.exists(model_path):
         os.makedirs(model_path)
 
     model_params = ["bert-base-uncased", args.loss]
-    if args.loss == "NTXent":
-        model_params.append(str(args.tau))
+    #  if args.loss == "NTXent":
+        #  model_params.append(str(args.tau))
 
     model_params += [str(args.lr), str(args.batch_size), str(args.weight_decay)]
 
@@ -99,15 +99,15 @@ if __name__ == '__main__':
     logging.info("total number of labels: " + str(len(cl_labels)))
 
     # 4. Build model
-    model = BertCLModel(args, bert_version=args.bert_version)
+    model = BertModel_FineTuned(args, bert_version=args.bert_version)
 
     tuned_parameters = [{'params': [param for name, param in model.named_parameters()]}]
 
     optimizer = AdamW(tuned_parameters, lr=args.lr)
 
     model_file = os.path.join(model_path, "_".join(model_params) + ".pt")
-    early_stopping = EarlyStopping(patience=20, verbose=False, path=model_file, delta=1e-10)
-    # early_stopping = EarlyStopping(patience=3, verbose=False, path=model_file, delta=1e-10)
+    #  early_stopping = EarlyStopping(patience=20, verbose=False, path=model_file, delta=1e-10)
+    early_stopping = EarlyStopping(patience=3, verbose=False, path=model_file, delta=1e-10)
     scheduler = get_linear_schedule_with_warmup(optimizer, len(train_loader) * 2, int(len(train_loader) * args.epochs))
 
     # 5. GPU setting
@@ -142,15 +142,15 @@ if __name__ == '__main__':
             optimizer.zero_grad()
             loss = model(token_ids, input_masks)
 
-            msg = "step: " + str(step) + " --- loss: " + str(loss)
-            logging.info(msg)
+            # msg = "step: " + str(step) + " --- loss: " + str(loss)
+            # logging.info(msg)
             # logging.info(indices)
             if pd.isna(loss):
                 print(indices)
                 break
             #  print(f"loss: {loss}")
-            #  if isinstance(model, torch.nn.DataParallel):
-                #  loss = loss.mean()
+            if isinstance(model, torch.nn.DataParallel):
+                loss = loss.mean()
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -200,7 +200,7 @@ if __name__ == '__main__':
 
         torch.cuda.empty_cache()
 
-        if epoch > 50:  # 50
+        if epoch > 20:  # 20
             early_stopping(val_loss, model)
 
         if early_stopping.early_stop:
