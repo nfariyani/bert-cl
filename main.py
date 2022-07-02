@@ -1,5 +1,6 @@
 import gc
 
+import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
 from src.loader import *
@@ -17,7 +18,7 @@ if __name__ == '__main__':
     # Set parameters
     args = argparse.Namespace(dataset='bsz8_2sat_5var_2maxcl_10k_2pos',
                               batch_size=8,
-                              max_seq_length=256,
+                              max_seq_length=512,
                               train_size=0.8,
                               bert_version='bert-base-uncased',
                               random_seed=123,
@@ -28,8 +29,9 @@ if __name__ == '__main__':
                               epochs=1000,
                               pooling='cls',
                               loss='NTXent',
-                              hidden_dim=512,
-                              out_dim=2
+                              hidden_dim=768,
+                              out_dim=1,
+                              embedding='concat'
                               )
 
     model_path = os.path.join('finetuned_bert_model', args.dataset)
@@ -123,11 +125,13 @@ if __name__ == '__main__':
     # 6. Start training
     model.train()
     logging.info("Start training...")
+    torch.set_printoptions(threshold=10)
     for epoch in trange(args.epochs, desc="Epoch"):
         train_loss = 0
         for step, batch in enumerate(tqdm(train_loader, desc="Iteration")):
             # idx1 = batch[0][:, 1]  -- get id_set, not needed
             indices = batch[0][:, 0]  # batch_size/4 are positive pairs, the rest are negative pairs
+            #  print(indices)
             sentences = np.array(pair_sentences)[indices - 1]
             labels = np.array(cl_labels)[indices - 1]
 
@@ -137,9 +141,16 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
             loss = model(token_ids, input_masks)
+
+            msg = "step: " + str(step) + " --- loss: " + str(loss)
+            logging.info(msg)
+            # logging.info(indices)
+            if pd.isna(loss):
+                print(indices)
+                break
             #  print(f"loss: {loss}")
-            if isinstance(model, torch.nn.DataParallel):
-                loss = loss.mean()
+            #  if isinstance(model, torch.nn.DataParallel):
+                #  loss = loss.mean()
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -152,6 +163,8 @@ if __name__ == '__main__':
             del loss
             gc.collect()
 
+        print('train_loss: ', train_loss)
+        print('num steps: ', str(step + 1))
         train_loss /= (step + 1)
         print('epoch: ', epoch, ' train_loss: {:,}'.format(train_loss))
         torch.cuda.empty_cache()
@@ -177,6 +190,8 @@ if __name__ == '__main__':
             del loss
             gc.collect()
 
+        print('val_loss: ', val_loss)
+        print('num steps: ', str(step + 1))
         val_loss /= (step + 1)
         model.train()
 
