@@ -271,7 +271,7 @@ class ContrastiveLoss(nn.Module):
 
 
 class EarlyStopping:
-    def __init__(self, patience=7, verbose=False, delta=0, path='checkpoint.pt', trace_func=print):
+    def __init__(self, patience=2, verbose=False, delta=0.002, path='checkpoint.pt', trace_func=print):
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
