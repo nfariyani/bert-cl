@@ -16,7 +16,7 @@ from tqdm import tqdm, trange
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     # Set parameters
-    args = argparse.Namespace(dataset='bsz8_2sat_5var_2maxcl_10k_2pos',
+    args = argparse.Namespace(dataset='bsz8_2sat_5var_3maxcl_10k_strict_2pos',
                               batch_size=8,
                               max_seq_length=512,
                               train_size=0.8,
@@ -49,8 +49,8 @@ if __name__ == '__main__':
     logging.basicConfig(filename=logging_path, encoding='utf-8', level=logging.INFO)
     logging.info(str(args))
 
-    fname_main = "dataset/SENT_bsz8_2sat_5var_2maxcl_10k_2pos_main.csv"
-    fname_allpairs = "dataset/SENT_bsz8_2sat_5var_2maxcl_10k_2pos_allpairs.csv"
+    fname_main = "dataset/SENT_bsz8_2sat_5var_3maxcl_10k_strict_2pos_main.csv"
+    fname_allpairs = "dataset/SENT_bsz8_2sat_5var_3maxcl_10k_strict_2pos_allpairs.csv"
     file_loader_path = os.path.join("src/dataset/", args.dataset)
 
     df_main = pd.read_csv(fname_main, sep=None, engine="python")
@@ -107,7 +107,7 @@ if __name__ == '__main__':
 
     model_file = os.path.join(model_path, "_".join(model_params) + ".pt")
     #  early_stopping = EarlyStopping(patience=20, verbose=False, path=model_file, delta=1e-10)
-    early_stopping = EarlyStopping(patience=3, verbose=False, path=model_file, delta=1e-10)
+    early_stopping = EarlyStopping(patience=2, verbose=False, path=model_file, delta=1e-10)
     scheduler = get_linear_schedule_with_warmup(optimizer, len(train_loader) * 2, int(len(train_loader) * args.epochs))
 
     # 5. GPU setting
@@ -200,7 +200,7 @@ if __name__ == '__main__':
 
         torch.cuda.empty_cache()
 
-        if epoch > 20:  # 20
+        if epoch > 5:  # 20
             early_stopping(val_loss, model)
 
         if early_stopping.early_stop:
