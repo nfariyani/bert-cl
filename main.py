@@ -34,7 +34,7 @@ if __name__ == '__main__':
                               embedding='concat'
                               )
 
-    model_path = os.path.join('finetuned_bert_model_no_cl', args.dataset)
+    model_path = os.path.join('finetuned_bert_model', args.dataset)
     if not os.path.exists(model_path):
         os.makedirs(model_path)
 
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     logging.info("total number of labels: " + str(len(cl_labels)))
 
     # 4. Build model
-    model = BertModel_FineTuned(args, bert_version=args.bert_version)
+    model = BertCLModel(args, bert_version=args.bert_version)
 
     tuned_parameters = [{'params': [param for name, param in model.named_parameters()]}]
 
